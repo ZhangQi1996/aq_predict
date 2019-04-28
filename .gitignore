@@ -42,3 +42,9 @@ coverage.xml
 
 # Sphinx documentation
 docs/_build/
+
+# test py files
+test.py
+
+# image
+# *.png
