@@ -31,7 +31,7 @@ def get_model(is_save_model_struct_img=False):
     decoder_inputs = Input(shape=(6,), batch_shape=(32, 4, 6))
 
     decoder_outputs = decoder(decoder_inputs, initial_state=encoder_states)
-    model = Model(inputs=(inputs_zz, inputs_xx, inputs_ly, inputs_xc, decoder_inputs), outputs=decoder_outputs)
+    model = Model(inputs=[inputs_zz, inputs_xx, inputs_ly, inputs_xc, decoder_inputs], outputs=decoder_outputs)
     model.compile(loss='mse', optimizer='adam')
     if is_save_model_struct_img:
         draw_model(model)
