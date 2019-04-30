@@ -12,6 +12,13 @@ CITY_CODE_TO_CITY_INDEX_MAP = {
     '411000': 3,    # 许昌
 }
 
+def _col_combine_vec(target_array, vec):
+	"""列方向合并竖向量"""
+	if isinstance(vec, list):
+		vec = np.array(vec)
+	if vec.ndim != 1:
+		raise 
+	target_array_ndim = target_array.ndim
 
 def _repair_data(data, time_gap = 3600):
     """
@@ -84,19 +91,27 @@ def data_loader(file_name='data.txt', encoding='utf-8', ratio=0.7):
     :param ratio: 数据集中训练跟预测数据比
     :return:
     """
+	# 返回修复后的数据(要是数据本来就正常保持不变)
     zz_data, xx_data, ly_data, xc_data = [_repair_data(data) for data in _data_loader(file_name, encoding)]
     begin_t = zz_data[0][0]  # 获取开始时间
     data_len = len(zz_data)
     if data_len < 24:
         raise Exception('所提供的的数据项长度应该大于等于24，你所提供的数据项长度为%s' % data_len)
     # 郑州每组取24个数据，其他每个取3个数据
-    i = 0
-    step_span = 1
+    i, step_span = 0, 1
+	zz_inputs, xx_inputs, ly_inputs, xc_inputs = [], [], [], []
     while i < data_len:
+		zz_input, xx_input, ly_input, xc_input = [], [], [], []
         for j in range(i, i + 24):
-            data_item = zz_data[j][1:]  # 郑州
-
-
+			zz_input = zz_input.append(zz_data[j][1:])	# 郑州
+		zz_inputs = zz_inputs.append(zz_input)
+		for j in range(i + 21, i + 24):		# 取最后三项
+			xx_input = xx_input.append(xx_data[j][1:])	# 新乡
+			ly_input = ly_input.append(ly_data[j][1:])	# 洛阳
+			xc_input = xc_input.append(xc_data[j][1:])	# 许昌
+		xx_inputs = xx_inputs.append(xx_input)	
+		xx_inputs = xx_inputs.append(xx_input)
+		zz_inputs = zz_inputs.append(zz_input)
         i += step_span
         if i + 24 > data_len:  # 下一轮越界
             break
