@@ -4,7 +4,8 @@ from keras.utils import plot_model
 import numpy as np
 import requests
 import json
-from sklearn.preprocessing import normalize
+from sklearn.metrics import r2_score    #R square
+from keras import backend as K
 
 CITY_CODE_TO_CITY_INDEX_MAP = {
     '410100': 0,    # 郑州
@@ -13,7 +14,7 @@ CITY_CODE_TO_CITY_INDEX_MAP = {
     '411000': 3,    # 许昌
 }
 
-DATA_TYPE = 'float64'
+DATA_TYPE = 'float32'
 
 
 def _col_combine_vec(target_array, vec):
@@ -81,28 +82,107 @@ def _repair_data(data, time_gap=3600):
         i += 1
     return np.concatenate([data[i][2:].reshape((1, 6)) for i in range(data_len)], axis=0)
 
-def _normalize(array, norm=None, return_norm=True, axis=1):
+
+def _standardize(array, params=None, return_params=True):
     """
-    正则化
+    调整每个属性到X~N(0, sigma)
     x' = (x - mu) / sigma
     :param array:
-    :param axis: 0 or 1
-    :return: array_normed, mu, sigma
+    :param params: (mu, sigma)
+    :return: array_stded, mu, sigma
     """
     if array.ndim not in (2, 3):
         raise TypeError('当前正则化只支持2维或3维')
     if array.ndim == 3:
         x, y, z = array.shape
         _array = array.reshape((x * y, z))
-        mu = np.mean(_array, axis=0)
-        sigma = np.sqrt(np.var(_array, axis=0))
-        _array_normed = (_array - mu) / sigma
-        array_normed = _array_normed.reshape((x, y, z))
+        if params is None:
+            mu = np.mean(_array, axis=0)
+            sigma = np.sqrt(np.var(_array, axis=0))
+        else:
+            mu, sigma = params
+        if mu.all() != 0 or sigma.all() != 0:
+            _array_stded = (_array - mu) / sigma
+            array_stded = _array_stded.reshape((x, y, z))
+        else:
+            array_stded = np.zeros((x, y, z))
     else:
-        mu = np.mean(array, axis=0)
-        sigma = np.sqrt(np.var(array, axis=0))
-        array_normed = (array - mu) / sigma
-    return array_normed, mu, sigma
+        if params is None:
+            mu = np.mean(array, axis=0)
+            sigma = np.sqrt(np.var(array, axis=0))
+        else:
+            mu, sigma = params
+        if mu.all() != 0 or sigma.all() != 0:
+            array_stded = (array - mu) / sigma
+        else:
+            array_stded = np.zeros(array.shape)
+    if return_params:
+        return array_stded, (mu, sigma)
+    else:
+        return array_stded
+
+
+def standardize(x, params_list=None, return_params_list=True):
+    """将x标准化，其中x = [zz_inputs, xx_inputs, ly_inputs, xc_inputs, decoder_inputs]"""
+    x_stded = []
+    if params_list is not None:
+        for i in range(len(x)):
+            x_stded.append(_standardize(x[i], params=params_list[i], return_params=True)[0])
+    else:
+        params_list = []
+        for i in range(len(x)):
+            _ = _standardize(x[i], params=None, return_params=True)
+            x_stded.append(_[0])
+            params_list.append(_[1])
+    if return_params_list:
+        return x_stded, params_list
+    else:
+        return x_stded
+
+
+def inverse_std(array_stded, params):
+    """将已经标准化过的数组逆标准化，支持1~3维数据，常见x, y"""
+    mu, sigma = params
+    if array_stded.ndim < 3:
+        return array_stded * sigma + mu
+    elif array_stded.ndim == 3:
+        x, y, z = array_stded.shape
+        array = array_stded.reshape((x * y, z)) * sigma + mu
+        return array.reshape((x, y, z))
+    else:
+        raise TypeError('不支持大于3维的数组逆标准化..')
+
+
+def save_std_params_list_or_params(params_list_or_params, file_name, encoding='utf-8', is_params_list=True):
+    with open(file=file_name, mode='w', encoding=encoding) as f:
+        if is_params_list:
+            params_list = params_list_or_params
+            for params in params_list:
+                mu, sigma = params
+                f.write(' '.join([str(mu[i]) for i in range(len(mu))]) + '#')
+                f.write(' '.join([str(sigma[i]) for i in range(len(sigma))]) + '\n')
+        else:
+            params = params_list_or_params
+            mu, sigma = params
+            f.write(' '.join([str(mu[i]) for i in range(len(mu))]) + '#')
+            f.write(' '.join([str(sigma[i]) for i in range(len(sigma))]) + '\n')
+
+
+def load_std_params_list_or_params(file_name, encoding='utf-8', is_params_list=True):
+    params_list = []
+    with open(file=file_name, mode='r', encoding=encoding) as f:
+        while f.readable():
+            line = f.readline()
+            if line == '':
+                break
+            mu, sigma = line.rstrip('\n').split('#')
+            mu = np.array([float(_) for _ in mu.split(' ')])
+            sigma = np.array([float(_) for _ in sigma.split(' ')])
+            params_list.append((mu, sigma))
+    if is_params_list:
+        return params_list
+    else:
+        return params_list[0]
 
 
 def _data_loader(file_name='data.txt', encoding='utf-8', ):
@@ -137,7 +217,7 @@ def _data_loader(file_name='data.txt', encoding='utf-8', ):
             elif data[0] == '411000':
                 xc_data = _row_combine_vec(xc_data, data[1: -1])
             else:
-                raise TypeError('%s 不在410100, 410300, 410700, 411000中')
+                raise TypeError('%s 不在410100, 410300, 410700, 411000中' % data[0])
     return zz_data, xx_data, ly_data, xc_data
 
 
@@ -187,6 +267,7 @@ def data_loader(file_name='data.txt', encoding='utf-8', ratio=0.7, decoder_input
     decoder_inputs = np.zeros(shape=(data_len, decoder_input_units, 6))
     _ = _shuffle((zz_inputs, xx_inputs, ly_inputs, xc_inputs, decoder_inputs, zz_outputs))
     i = int(data_len * ratio)
+    print("在修复模式下总共读取%s条数据，其中训练集数据为%s条，测试集数据为%s条，当前比率为%s" % (data_len, i, data_len - i, ratio))
     return [_[:i] for _ in _[:-1]], _[-1][:i], [_[i:] for _ in _[:-1]], _[-1][i:]
 
 
@@ -195,6 +276,7 @@ def _shuffle(arrays):
     :param arrays:
     :return:
     """
+    print("正在shuffle数据...")
     l = len(arrays[0])
     for array in arrays:
         if len(array) != l:
@@ -207,8 +289,8 @@ def _shuffle(arrays):
         for i in range(l):
             _[i] = array[shuffle_list[i]]
         ret.append(_)
+    print("shuffle数据完成...")
     return ret
-
 
 
 def save_model_structure(model, file_name_prefix='conf', encoding='utf-8', format='json'):
@@ -234,7 +316,7 @@ def save_model_structure(model, file_name_prefix='conf', encoding='utf-8', forma
     warnings.warn("像一些复杂的结构将无法被序列化（e.g. Add Layer）如果出现类似结构推荐使用model.save()")
 
 
-def draw_model(model):
+def _draw_model(model):
     """
     绘制模型结构
     :param model:
@@ -252,11 +334,60 @@ def create_data_txt_from_json_interface():
     :return:
     """
     url = "http://www.david-zhang.cn:8080/v1/cur_data/part/rlv_pred_cities/"
+    print("正在从接口%s下载数据..." % url)
     rsp = requests.get(url)
+    print("下载完成，正在转换数据并存入data.txt...")
     cities_data = json.loads(rsp.text)
     with open('data.txt', mode='w', encoding='utf-8') as f:
         for city_data in cities_data:
             f.write(' '.join([str(city_data[key]) for key in city_data.keys()]) + '\n')
+    print("写入完成...")
 
 
-def get_r
+def get_adjusted_r2_score(y_true, y_pred, return_str=False):
+    """
+    回归评价指标：校正决定系数（Adjusted R-Square）
+    参见：https://blog.csdn.net/u012735708/article/details/84337262
+    Adjusted R-Square 抵消样本数量对 R-Square的影响，做到了真正的 0~1，越大越好。
+    :param y_true:
+    :param y_pred:
+    :return: 0~1的浮点值（越大越好）
+    """
+    assert y_true.shape == y_pred.shape, 'y_true 与 y_pred的维度不同'
+    if y_pred.ndim == 3:
+        simples_n, pred_n, features_n = y_pred.shape
+        y_true = y_true.reshape((y_true.shape[0] * y_true.shape[1], y_true.shape[2]))
+        y_pred = y_pred.reshape((y_pred.shape[0] * y_pred.shape[1], y_pred.shape[2]))
+    else:
+        raise TypeError('所提供的y_true, y_pred都必须维度数 == 3, 而实际维度数为%s' % y_pred.ndim)
+    simples_n *= pred_n
+    _ = r2_score(y_true, y_pred)
+    _ = (_ - 1) * (simples_n - 1) / (simples_n - features_n - 1) + 1
+    if return_str:
+        return '回归评价指标：校正决定系数（Adjusted R-Square）= %s (越靠近1越有效)' % _
+    else:
+        return _
+
+
+def draw_train_loss_curve(history):
+    """
+    绘制训练得到的loss曲线
+    :param history:
+    :return:
+    """
+    from matplotlib import pyplot as plt
+    plt.plot(history.history['loss'], label='train')
+    plt.plot(history.history['val_loss'], label='test')
+    plt.legend()
+    plt.show()
+
+
+def adjusted_mae(y_true, y_pred, penalize_1=3, penalize_2=10):
+    """
+    默认y_true和y_pred都是(simples, units, features)
+    作为mae的基于本问题作出适当修正，增大第三和第五列的惩罚
+    """
+    _ = y_pred - y_true
+    penalize_1 *= _[:][:][2]
+    penalize_2 *= _[:][:][4]
+    return K.mean(K.abs(_), axis=-1) + K.mean(K.abs(penalize_1 + penalize_2), axis=-1)

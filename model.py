@@ -1,15 +1,16 @@
 from keras.layers import LSTM, SimpleRNN, Input, Add
-from utils import *
+from utils import _draw_model, adjusted_mae
+from keras.models import Model
 
 
 def get_model(is_save_model_struct_img=False):
     """
     获取AQPredict模型
     """
-    inputs_zz = Input(shape=(6,), batch_shape=(32, 24, 6))
-    inputs_xx = Input(shape=(6,), batch_shape=(32, 3, 6))
-    inputs_ly = Input(shape=(6,), batch_shape=(32, 3, 6))
-    inputs_xc = Input(shape=(6,), batch_shape=(32, 3, 6))
+    inputs_zz = Input(shape=(6,), batch_shape=(None, 24, 6))
+    inputs_xx = Input(shape=(6,), batch_shape=(None, 3, 6))
+    inputs_ly = Input(shape=(6,), batch_shape=(None, 3, 6))
+    inputs_xc = Input(shape=(6,), batch_shape=(None, 3, 6))
 
     # 关于return_sequences，return_state的设置参见https://blog.csdn.net/u011327333/article/details/78501054
     # lstm_layer_zz_outputs = (lstm_output, state_h, state_c) 这里lstm_output==state_h
@@ -28,13 +29,13 @@ def get_model(is_save_model_struct_img=False):
     decoder = LSTM(6, input_shape=(4, 6), return_sequences=True, activation='linear')
 
     # 全零
-    decoder_inputs = Input(shape=(6,), batch_shape=(32, 4, 6))
+    decoder_inputs = Input(shape=(6,), batch_shape=(None, 4, 6))
 
     decoder_outputs = decoder(decoder_inputs, initial_state=encoder_states)
     model = Model(inputs=[inputs_zz, inputs_xx, inputs_ly, inputs_xc, decoder_inputs], outputs=decoder_outputs)
-    model.compile(loss='mse', optimizer='adam')
+    model.compile(loss='mae', optimizer='adam')
     if is_save_model_struct_img:
-        draw_model(model)
+        _draw_model(model)
         print("保存模型结构图成功...")
     # conf_json = model.to_json()
     # save_model_structure(model, format='yaml')
