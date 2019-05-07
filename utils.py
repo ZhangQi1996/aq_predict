@@ -5,7 +5,7 @@ import numpy as np
 import requests
 import json
 from sklearn.metrics import r2_score    #R square
-from keras import backend as K
+from math import ceil
 
 CITY_CODE_TO_CITY_INDEX_MAP = {
     '410100': 0,    # 郑州
@@ -15,6 +15,18 @@ CITY_CODE_TO_CITY_INDEX_MAP = {
 }
 
 DATA_TYPE = 'float32'
+
+# 1h
+AQI_RULER = [
+    [0, 35, 75, 115, 150, 250, 350, 500],   # pm2.5
+    [0, 50, 150, 250, 350, 420, 500, 600],  # pm10
+    [0, 150, 500, 650, 800],    # so2
+    [0, 100, 200, 700, 1200, 2340, 3090, 3840],     # no2
+    [0, 5, 10, 35, 60, 90, 120, 150],   # co
+    [0, 100, 160, 215, 265, 800]    # o3
+]
+
+IAQI_RULER = [0, 50, 100, 150, 200, 300, 400, 500]
 
 
 def _col_combine_vec(target_array, vec):
@@ -382,12 +394,64 @@ def draw_train_loss_curve(history):
     plt.show()
 
 
-def adjusted_mae(y_true, y_pred, penalize_1=3, penalize_2=10):
+def get_rlv_params(f1='x_params_list.txt', f2='y_params.txt'):
+    """获得相关参数"""
+    return load_std_params_list_or_params(file_name=f1, is_params_list=True), \
+           load_std_params_list_or_params(file_name=f2, is_params_list=False)
+
+
+def _cpt_iaqi(cp, bph, bpl, iaqih, iaqil):
+    """计算某一项目的IAQI值"""
+    return (iaqih - iaqil) * (cp - bpl) / (bph - bpl) + iaqil
+
+
+def _get_low_and_high(ruler, cp):
+    """在ruler中计算其bp, iaqi下限值与上限值，当超过最大上限值时，返回的上限值就是cp值"""
+    i, l, bpl, bph, iaqil, iaqih = 1, len(ruler), 0, 0, 0, 0
+    while i < l:
+        if cp < ruler[i]:
+            bpl = ruler[i-1]
+            bph = ruler[i]
+            iaqil = IAQI_RULER[i-1]
+            iaqih = IAQI_RULER[i]
+            break
+        i += 1
+    if i >= l:
+        bpl, bph = ruler[-1], cp
+        iaqil = IAQI_RULER[-1]
+        iaqih = iaqil + 100
+    return bpl, bph, iaqil, iaqih
+
+
+def _get_one_record_aqi(vec):
     """
-    默认y_true和y_pred都是(simples, units, features)
-    作为mae的基于本问题作出适当修正，增大第三和第五列的惩罚
+    获取一条记录的AQI值
+    :param vec:  [PM2.5,PM10,SO2,NO2,CO,O3]
+    :return: AQI
     """
-    _ = y_pred - y_true
-    penalize_1 *= _[:][:][2]
-    penalize_2 *= _[:][:][4]
-    return K.mean(K.abs(_), axis=-1) + K.mean(K.abs(penalize_1 + penalize_2), axis=-1)
+    aqi = 0
+    for i, cp in enumerate(vec):
+        bpl, bph, iaqil, iaqih = _get_low_and_high(AQI_RULER[i], cp)
+        _ = _cpt_iaqi(cp, bph, bpl, iaqih, iaqil)
+        if _ > aqi:
+            aqi = _
+    return aqi
+
+
+def get_aqi_and_combine(array):
+    """
+    array = (simples, features) or (features)
+
+    """
+    if array.ndim not in (1, 2):
+        raise TypeError('array必须是一维或二维数据...')
+    if array.ndim == 1:
+        return np.append((ceil(_get_one_record_aqi(array)), array))
+    x, y = array.shape
+    y += 1
+    aqis = np.array([])
+    for vec in array:
+        aqis = np.append(aqis, _get_one_record_aqi(vec))
+    aqis = aqis.reshape((len(aqis), 1))
+    aqis = np.ceil(aqis)
+    return np.column_stack((aqis, array))
