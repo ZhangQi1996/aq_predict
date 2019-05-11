@@ -48,3 +48,5 @@ test.py
 
 # image
 # *.png
+
+.idea/

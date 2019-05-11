@@ -1,11 +1,12 @@
 from keras.layers import LSTM, SimpleRNN, Input, Add
-from utils import _draw_model, adjusted_mae
+from utils import _draw_model
 from keras.models import Model
 
 
 def get_model(is_save_model_struct_img=False):
     """
     获取AQPredict模型
+
     """
     inputs_zz = Input(shape=(6,), batch_shape=(None, 24, 6))
     inputs_xx = Input(shape=(6,), batch_shape=(None, 3, 6))

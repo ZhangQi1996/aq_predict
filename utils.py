@@ -345,7 +345,7 @@ def create_data_txt_from_json_interface():
     城市码_时间_AQI_PM2.5_PM10_SO2_NO2_CO_O3_首要污染物
     :return:
     """
-    url = "http://www.david-zhang.cn:8080/v1/cur_data/part/rlv_pred_cities/"
+    url = "http://www.david-zhang.cn:8080/v1/app/cur_data/part/rlv_pred_cities/"
     print("正在从接口%s下载数据..." % url)
     rsp = requests.get(url)
     print("下载完成，正在转换数据并存入data.txt...")
