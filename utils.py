@@ -29,6 +29,9 @@ AQI_RULER = [
 IAQI_RULER = [0, 50, 100, 150, 200, 300, 400, 500]
 
 
+BATCH_SIZE = 256
+
+
 def _col_combine_vec(target_array, vec):
     """
     将vec向量列合并到目标数组中
