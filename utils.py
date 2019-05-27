@@ -107,7 +107,7 @@ def _standardize(array, params=None, return_params=True):
     :return: array_stded, mu, sigma
     """
     if array.ndim not in (2, 3):
-        raise TypeError('当前正则化只支持2维或3维')
+        raise TypeError('当前标准化只支持2维或3维')
     if array.ndim == 3:
         x, y, z = array.shape
         _array = array.reshape((x * y, z))
